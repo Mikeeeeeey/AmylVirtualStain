@@ -9,7 +9,7 @@ This repository contains the initial code upload for running on a Windows 11 PC 
 
 ## Resources
 
-- **Model and Demo Images**: Access the necessary model and demo images through Google Drive: [https://drive.google.com/drive/folders/14kA0NlJQSwvDjqYROvEe14UcQsoPn5FW?usp=drive_link](https://drive.google.com/drive/folders/14kA0NlJQSwvDjqYROvEe14UcQsoPn5FW?usp=drive_link).
+- **Model and Demo Images**: Access the necessary model and demo images through Google Drive: https://drive.google.com/drive/folders/14kA0NlJQSwvDjqYROvEe14UcQsoPn5FW
 
 ## Support
 
