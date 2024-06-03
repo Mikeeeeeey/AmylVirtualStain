@@ -18,6 +18,7 @@ Before running the code, ensure you have the following:
    conda env create -f environment.yml
    conda activate <environment_name>
   ```
+Installation time depends on your network but should take less than half an hour on average.
   
 
 ## To Run the Testing Code
@@ -31,6 +32,7 @@ python test_reg_attngan_dpm.py
 
 ## Resources
 - **Model and Demo Images**: Access the necessary model and demo images through Google Drive: https://drive.google.com/drive/folders/14kA0NlJQSwvDjqYROvEe14UcQsoPn5FW
+- Typical testing speed is available in the manuscript.
 
 ## Support
 
