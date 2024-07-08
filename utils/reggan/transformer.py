@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
+# transformer for reggan
 
 class Transformer_2D(nn.Module):
     def __init__(self):

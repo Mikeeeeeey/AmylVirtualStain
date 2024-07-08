@@ -4,22 +4,22 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+# Constants
 scale_eval = False
-
 alpha = 0.02
 beta = 0.00002
-
 resnet_n_blocks = 1
 
+# Set normalization layer
 norm_layer = partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
 align_corners = False
 up_sample_mode = "bilinear"
 
-
+# Custom weight initialization function
 def custom_init(m):
     m.data.normal_(0.0, alpha)
 
-
+# Get the appropriate initialization function based on activation and init function type
 def get_init_function(activation, init_function, **kwargs):
     """Get the initialization function from the given name."""
     a = 0.0
@@ -57,7 +57,7 @@ def get_init_function(activation, init_function, **kwargs):
     else:
         return init_function
 
-
+# Get the appropriate activation function based on the name
 def get_activation(activation, **kwargs):
     """Get the appropriate activation from the given name"""
     if activation == "relu":
@@ -74,10 +74,10 @@ def get_activation(activation, **kwargs):
     else:
         return None
 
-
+# Basic convolutional layer with optional normalization and activation
 class Conv(torch.nn.Module):
     """Defines a basic convolution layer.
-    The general structure is as follow:
+    The general structure is as follows:
 
     Conv -> Norm (optional) -> Activation -----------> + --> Output
                                          |            ^
@@ -128,7 +128,7 @@ class Conv(torch.nn.Module):
             x = self.resnet_block(x)
         return x
 
-
+# Up-sampling block with optional attention and residual connections
 class UpBlock(torch.nn.Module):
     def __init__(
         self,
@@ -149,10 +149,8 @@ class UpBlock(torch.nn.Module):
         **kwargs
     ):
         super(UpBlock, self).__init__()
-        if "nc_inner" in kwargs:
-            nc_inner = kwargs["nc_inner"]
-        else:
-            nc_inner = nc_out
+        nc_inner = kwargs.get("nc_inner", nc_out)
+        
         self.conv_0 = Conv(
             nc_down_stream + nc_skip_stream,
             nc_inner,
@@ -166,21 +164,21 @@ class UpBlock(torch.nn.Module):
             use_resnet=use_resnet,
             **kwargs
         )
-        self.conv_1 = None
-        if refine:
-            self.conv_1 = Conv(
-                nc_inner,
-                nc_inner,
-                kernel_size=kernel_size,
-                stride=stride,
-                padding=padding,
-                bias=bias,
-                activation=activation,
-                init_func=init_func,
-                use_norm=use_norm,
-                use_resnet=use_resnet,
-                **kwargs
-            )
+        
+        self.conv_1 = Conv(
+            nc_inner,
+            nc_inner,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=bias,
+            activation=activation,
+            init_func=init_func,
+            use_norm=use_norm,
+            use_resnet=use_resnet,
+            **kwargs
+        ) if refine else None
+        
         self.use_attention = use_attention
         if self.use_attention:
             self.attention_gate = AttentionGate(
@@ -190,6 +188,7 @@ class UpBlock(torch.nn.Module):
                 use_norm=True,
                 init_func=init_func,
             )
+        
         self.up_conv = Conv(
             nc_inner,
             nc_out,
@@ -203,6 +202,7 @@ class UpBlock(torch.nn.Module):
             use_resnet=False,
             **kwargs
         )
+        
         self.use_add = use_add
         if self.use_add:
             self.output = Conv(
@@ -223,10 +223,7 @@ class UpBlock(torch.nn.Module):
         skip_stream_size = skip_stream.size()
         if self.use_attention:
             skip_stream = self.attention_gate(down_stream, skip_stream)
-        if (
-            down_stream_size[2] != skip_stream_size[2]
-            or down_stream_size[3] != skip_stream_size[3]
-        ):
+        if down_stream_size[2] != skip_stream_size[2] or down_stream_size[3] != skip_stream_size[3]:
             down_stream = F.interpolate(
                 down_stream,
                 (skip_stream_size[2], skip_stream_size[3]),
@@ -243,7 +240,7 @@ class UpBlock(torch.nn.Module):
             x = self.up_conv(x)
         return x
 
-
+# Down-sampling block with optional pooling and residual connections
 class DownBlock(torch.nn.Module):
     def __init__(
         self,
@@ -274,30 +271,26 @@ class DownBlock(torch.nn.Module):
             activation=activation,
             init_func=init_func,
             use_norm=use_norm,
-            callback=None,
             use_resnet=use_resnet,
             **kwargs
         )
-        self.conv_1 = None
-        if refine:
-            self.conv_1 = Conv(
-                out_channels,
-                out_channels,
-                kernel_size,
-                stride,
-                padding,
-                bias=bias,
-                activation=activation,
-                init_func=init_func,
-                use_norm=use_norm,
-                callback=None,
-                use_resnet=use_resnet,
-                **kwargs
-            )
+        
+        self.conv_1 = Conv(
+            out_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            bias=bias,
+            activation=activation,
+            init_func=init_func,
+            use_norm=use_norm,
+            use_resnet=use_resnet,
+            **kwargs
+        ) if refine else None
+        
         self.skip = skip
-        self.pool = None
-        if pool:
-            self.pool = nn.MaxPool2d(kernel_size=pool_size)
+        self.pool = nn.MaxPool2d(kernel_size=pool_size) if pool else None
 
     def forward(self, x):
         x = skip = self.conv_0(x)
@@ -305,12 +298,9 @@ class DownBlock(torch.nn.Module):
             x = skip = self.conv_1(x)
         if self.pool is not None:
             x = self.pool(x)
-        if self.skip:
-            return x, skip
-        else:
-            return x
+        return (x, skip) if self.skip else x
 
-
+# Attention gate for U-Net architecture
 class AttentionGate(torch.nn.Module):
     def __init__(
         self,
@@ -356,7 +346,7 @@ class AttentionGate(torch.nn.Module):
             0,
             bias=True,
             activation="sigmoid",
-            init_function=init_func,
+            init_func=init_func,
             use_norm=use_norm,
             use_resnet=False,
         )
@@ -367,7 +357,7 @@ class AttentionGate(torch.nn.Module):
         x_resized = x
         g_c = self.conv_g(g)
         x_c = self.conv_x(x_resized)
-        if x_c.size(2) != g_size[2] and x_c.size(3) != g_size[3]:
+        if x_c.size(2) != g_size[2] or x_c.size(3) != g_size[3]:
             x_c = F.interpolate(
                 x_c,
                 (g_size[2], g_size[3]),
@@ -379,7 +369,7 @@ class AttentionGate(torch.nn.Module):
         if not self.mask_channel_wise:
             alpha = alpha.repeat(1, x_size[1], 1, 1)
         alpha_size = alpha.size()
-        if alpha_size[2] != x_size[2] and alpha_size[3] != x_size[3]:
+        if alpha_size[2] != x_size[2] or alpha_size[3] != x_size[3]:
             alpha = F.interpolate(
                 x,
                 (x_size[2], x_size[3]),
@@ -388,12 +378,12 @@ class AttentionGate(torch.nn.Module):
             )
         return alpha * x
 
-
+# ResNet transformer block
 class ResnetTransformer(torch.nn.Module):
     def __init__(self, dim, n_blocks, init_func):
         super(ResnetTransformer, self).__init__()
         model = []
-        for i in range(n_blocks):  # add ResNet blocks
+        for _ in range(n_blocks):  # add ResNet blocks
             model += [
                 ResnetBlock(
                     dim,
@@ -408,11 +398,11 @@ class ResnetTransformer(torch.nn.Module):
         init_ = get_init_function("relu", init_func)
 
         def init_weights(m):
-            if type(m) == nn.Conv2d:
+            if isinstance(m, nn.Conv2d):
                 init_(m.weight)
                 if m.bias is not None:
                     m.bias.data.zero_()
-            if type(m) == nn.BatchNorm2d:
+            if isinstance(m, nn.BatchNorm2d):
                 nn.init.normal_(m.weight.data, 1.0, 0.02)
                 nn.init.constant_(m.bias.data, 0.0)
 
@@ -421,7 +411,7 @@ class ResnetTransformer(torch.nn.Module):
     def forward(self, x):
         return self.model(x)
 
-
+# ResNet block with skip connections
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
 
@@ -469,15 +459,12 @@ class ResnetBlock(nn.Module):
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
 
-        p = 0
         if padding_type == "reflect":
             conv_block += [nn.ReflectionPad2d(1)]
         elif padding_type == "replicate":
             conv_block += [nn.ReplicationPad2d(1)]
         elif padding_type == "zero":
             p = 1
-        else:
-            raise NotImplementedError("padding [%s] is not implemented" % padding_type)
         conv_block += [
             nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
             norm_layer(dim),

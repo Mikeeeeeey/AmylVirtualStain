@@ -4,14 +4,15 @@ from modules.module_unet_dpm import GAN as UnetGan
 from utils.reggan.transformer import Transformer_2D
 from utils.reggan.reg import Reg
 
-
+# Define the custom GAN class inheriting from UnetGan
 class GAN(UnetGan):
     def __init__(self, config):
         super().__init__(config)
-        self.R_A = self.defineR()
-        self.spatial_transform = Transformer_2D()
+        self.R_A = self.defineR()  # Initialize the registration network
+        self.spatial_transform = Transformer_2D()  # Initialize the spatial transformer
 
     def defineG(self):
+        # Define the generator network
         netG = Generator(
             self.config,
             in_channels=self.config.in_channels,
@@ -23,10 +24,13 @@ class GAN(UnetGan):
         return netG
 
     def defineD(self):
-        if self.config.conditional is True:
-            in_channels_D = self.config.out_channels + self.config.in_channels
-        else:
-            in_channels_D = self.config.out_channels
+        # Determine the input channels for the discriminator
+        in_channels_D = (
+            self.config.out_channels + self.config.in_channels
+            if self.config.conditional
+            else self.config.out_channels
+        )
+        # Define the discriminator network
         netD = Discriminator(
             self.config,
             in_channels=in_channels_D,
@@ -36,6 +40,7 @@ class GAN(UnetGan):
         return netD
 
     def defineR(self):
+        # Define the registration network
         netR = Reg(
             self.config.crop_size,
             self.config.crop_size,
@@ -45,6 +50,7 @@ class GAN(UnetGan):
         return netR
 
     def configure_optimizers(self):
+        # Define optimizers for the generator, discriminator, and registration network
         opt_g = torch.optim.AdamW(
             self.generator.parameters(),
             lr=self.config.lr_g,
@@ -60,6 +66,7 @@ class GAN(UnetGan):
         opt_r = torch.optim.Adam(
             self.R_A.parameters(), lr=self.config.lr_r, betas=(0.5, 0.999)
         )
+        # Return optimizers with their respective update frequencies
         return [
             {"optimizer": opt_g, "frequency": self.config.opt_g_freq},
             {"optimizer": opt_d, "frequency": self.config.opt_d_freq},
@@ -69,12 +76,10 @@ class GAN(UnetGan):
     def training_step(self, batch, batch_nb, optimizer_idx):
         input_image, real_image = batch
 
-        # train generator
+        # Train generator
         if optimizer_idx == 0:
-            # generate images
             g_losses, _ = self.compute_generator_loss(input_image, real_image)
             self.g_losses = g_losses
-            # self.generated = generated.detach()
             self.log_dict(
                 {key + "/train": g_losses[key] for key in g_losses.keys()},
                 on_step=False,
@@ -83,11 +88,10 @@ class GAN(UnetGan):
             g_loss = sum(g_losses.values()).mean()
             return g_loss
 
+        # Train discriminator
         if optimizer_idx == 1:
             fake_image = self.generate_fake(input_image).detach()
-            d_losses = self.compute_discriminator_loss(
-                input_image, fake_image, real_image
-            )
+            d_losses = self.compute_discriminator_loss(input_image, fake_image, real_image)
             self.d_losses = d_losses
             self.log_dict(
                 {key + "/train": d_losses[key] for key in d_losses.keys()},
@@ -97,15 +101,14 @@ class GAN(UnetGan):
             d_loss = sum(d_losses.values()).mean()
             return d_loss
 
+        # Train registration network
         if optimizer_idx == 2:
             fake_image = self.generate_fake(input_image).detach()
-            # fake_image, trans = self.correct_reg(fake_image, real_image)
             real_image, trans = self.correct_reg(fake_image, real_image)
-            r_losses = {}
-            r_losses["REG"] = (
-                self.criterionL1(fake_image, real_image) * self.config.lambda_reg
-            )
-            r_losses["SMTH"] = self.smooothing_loss(trans) * self.config.lambda_smth
+            r_losses = {
+                "REG": self.criterionL1(fake_image, real_image) * self.config.lambda_reg,
+                "SMTH": self.smooothing_loss(trans) * self.config.lambda_smth,
+            }
             self.log_dict(
                 {key + "/train": r_losses[key] for key in r_losses.keys()},
                 on_step=False,
@@ -119,15 +122,10 @@ class GAN(UnetGan):
         fake_image = self.generate_fake(input_image)
         pred_fake, _ = self.discriminate(input_image, fake_image, real_image)
         if self.config.lambda_dis > 0:
-            G_losses["GAN"] = (
-                self.criterionGAN(pred_fake, True) * self.config.lambda_dis
-            )
-        # fake_image, _ = self.correct_reg(fake_image, real_image)
+            G_losses["GAN"] = self.criterionGAN(pred_fake, True) * self.config.lambda_dis
         real_image, _ = self.correct_reg(fake_image, real_image)
         if self.config.lambda_l1 > 0:
-            G_losses["L1"] = (
-                self.criterionL1(fake_image, real_image) * self.config.lambda_l1
-            )
+            G_losses["L1"] = self.criterionL1(fake_image, real_image) * self.config.lambda_l1
         if self.config.lambda_ssim > 0:
             G_losses["SSIM"] = (
                 self.criterionSSIM((fake_image + 1.0) / 2.0, (real_image + 1.0) / 2.0)
@@ -143,7 +141,4 @@ class GAN(UnetGan):
     def smooothing_loss(self, y_pred):
         dy = torch.abs(y_pred[:, :, 1:, :] - y_pred[:, :, :-1, :])
         dx = torch.abs(y_pred[:, :, :, 1:] - y_pred[:, :, :, :-1])
-        dx = dx * dx
-        dy = dy * dy
-        d = torch.mean(dx) + torch.mean(dy)
-        return d
+        return torch.mean(dx * dx) + torch.mean(dy * dy)
